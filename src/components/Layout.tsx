@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Home, ClipboardList, ArrowUp, Users, BellRing } from 'lucide-react';
+import { Home, ClipboardList, ArrowUp, Users, BellRing, Cloud, CloudOff } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Logo, Wordmark } from './Brand';
 
@@ -11,7 +11,7 @@ const TABS = [
 ];
 
 export default function Layout() {
-  const { session } = useApp();
+  const { session, cloudEnabled, syncStatus } = useApp();
   const nav = useNavigate();
   const fabTo = '/upload';
 
@@ -25,6 +25,22 @@ export default function Layout() {
           </span>
         </button>
         <div className="flex items-center gap-2">
+          <span
+            className="flex items-center gap-1 rounded-full bg-white px-2 py-1.5 text-[10px] font-semibold shadow-sm"
+            title={
+              cloudEnabled
+                ? syncStatus === 'error'
+                  ? 'Cloud sync error — changes are saved on this device only'
+                  : 'Shared — data syncs across all devices in real time'
+                : 'This device only — no cloud sync configured'
+            }
+          >
+            {cloudEnabled ? (
+              <Cloud className={`h-3.5 w-3.5 ${syncStatus === 'error' ? 'text-rose-500' : 'text-emerald-500'}`} />
+            ) : (
+              <CloudOff className="h-3.5 w-3.5 text-gray-400" />
+            )}
+          </span>
           <button onClick={() => nav('/highlights')} className="rounded-full bg-white p-2 shadow-sm" aria-label="Alerts">
             <BellRing className="h-4 w-4 text-gray-500" />
           </button>

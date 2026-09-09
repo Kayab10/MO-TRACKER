@@ -49,10 +49,17 @@ export default function TargetsPage() {
     });
   }
 
-  function save() {
-    const res = setTargets(draft);
-    setMsg(res.ok ? 'Targets saved.' : `Save failed: ${res.error}`);
-    setTimeout(() => setMsg(''), 2500);
+  async function save() {
+    setMsg('Saving…');
+    const res = await setTargets(draft);
+    setMsg(
+      !res.ok
+        ? `Save failed: ${res.error}`
+        : res.cloudError
+          ? `Saved locally — cloud sync failed: ${res.cloudError}`
+          : 'Targets saved.',
+    );
+    setTimeout(() => setMsg(''), 3000);
   }
 
   async function exportXlsx() {

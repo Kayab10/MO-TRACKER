@@ -1,14 +1,26 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { currentSession, logout as doLogout, type Session } from '../store/auth';
-import { db } from '../store/db';
+import { db, type Settings } from '../store/db';
+import { cloudEnabled, cloudReady, pull, push, watch, type StateKey } from '../lib/cloud';
 import { SEED_OFFICERS } from '../data/officers';
 import type { Dataset, Targets } from '../lib/types';
 import { cumulativeRange, customRange, monthlyRange, setStrictCount, type DateRange } from '../lib/aggregate';
 
 export type RangeMode = 'monthly' | 'cumulative' | 'custom';
 export type CountMode = 'strict' | 'lenient';
+export type SyncStatus = 'off' | 'connecting' | 'live' | 'error';
 
-/** List of 'YYYY-MM' spanning the file's own date range. */
+type SaveResult = { ok: boolean; error?: string; cloudError?: string };
+
 export function availableMonths(minIso: string | null, maxIso: string | null): string[] {
   const start = minIso ? new Date(minIso) : new Date();
   const end = maxIso ? new Date(maxIso) : new Date();
@@ -28,17 +40,17 @@ interface AppState {
 
   dataset: Dataset | null;
   reloadDataset: () => void;
-  setDataset: (d: Dataset) => { ok: boolean; error?: string };
+  setDataset: (d: Dataset | null) => Promise<SaveResult>;
 
   targets: Targets;
-  setTargets: (t: Targets) => { ok: boolean; error?: string };
+  setTargets: (t: Targets) => Promise<SaveResult>;
 
   rangeMode: RangeMode;
   setRangeMode: (m: RangeMode) => void;
   customStart: string;
   customEnd: string;
   setCustom: (start: string, end: string) => void;
-  selectedMonth: string; // 'YYYY-MM'
+  selectedMonth: string;
   setSelectedMonth: (m: string) => void;
   months: string[];
 
@@ -47,9 +59,12 @@ interface AppState {
   lowThreshold: number;
   setLowThreshold: (n: number) => void;
 
-  roster: string[]; // MO names from the uploaded file (or seed list if none)
+  roster: string[];
   refDate: Date;
   range: DateRange;
+
+  cloudEnabled: boolean;
+  syncStatus: SyncStatus;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -62,44 +77,115 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [countMode, setCountModeState] = useState<CountMode>(() => {
-    const m = db.getCountMode();
-    setStrictCount(m === 'strict');
-    return m;
+  const [settings, setSettingsState] = useState<Settings>(() => {
+    const s = db.getSettings();
+    setStrictCount(s.countMode === 'strict');
+    return s;
   });
-  const [lowThreshold, setLowThresholdState] = useState<number>(() => db.getLowThreshold());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(cloudEnabled ? 'connecting' : 'off');
 
-  const setCountMode = useCallback((m: CountMode) => {
-    setStrictCount(m === 'strict');
-    db.setCountMode(m);
-    setCountModeState(m);
+  // keys this device wrote recently — skip the realtime echo for them
+  const echoGuard = useRef<Set<StateKey>>(new Set());
+  const guard = (k: StateKey) => {
+    echoGuard.current.add(k);
+    setTimeout(() => echoGuard.current.delete(k), 4000);
+  };
+
+  const applyKey = useCallback((key: StateKey, value: unknown) => {
+    if (key === 'dataset') {
+      const d = (value as Dataset | null) ?? null;
+      db.setDataset(d);
+      setDatasetState(db.getDataset());
+    } else if (key === 'targets') {
+      const t = (value as Targets) ?? {};
+      db.setTargets(t);
+      setTargetsState(t);
+    } else if (key === 'settings') {
+      const s = value as Settings;
+      db.setSettings(s);
+      setStrictCount(s.countMode === 'strict');
+      setSettingsState(s);
+    }
   }, []);
 
-  const setLowThreshold = useCallback((n: number) => {
-    db.setLowThreshold(n);
-    setLowThresholdState(n);
+  // Initial cloud hydrate + realtime subscription
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    let alive = true;
+    (async () => {
+      for (const key of ['dataset', 'targets', 'settings'] as StateKey[]) {
+        const v = await pull(key);
+        if (alive && v !== undefined) applyKey(key, v);
+      }
+      if (alive) setSyncStatus(cloudReady() ? 'live' : 'error');
+    })();
+    const off = watch(async (key) => {
+      if (echoGuard.current.has(key)) return;
+      const v = await pull(key);
+      if (v !== undefined) applyKey(key, v);
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [applyKey]);
+
+  const mirror = useCallback(async (key: StateKey, value: unknown, localOk: boolean): Promise<SaveResult> => {
+    if (!localOk) return { ok: false, error: 'could not save to this browser' };
+    if (!cloudEnabled) return { ok: true };
+    guard(key);
+    const res = await push(key, value);
+    if (!res.ok) {
+      setSyncStatus('error');
+      return { ok: true, cloudError: res.error };
+    }
+    setSyncStatus('live');
+    return { ok: true };
   }, []);
+
+  const setDataset = useCallback(
+    async (d: Dataset | null): Promise<SaveResult> => {
+      const res = db.setDataset(d);
+      if (res.ok) setDatasetState(db.getDataset());
+      return mirror('dataset', d, res.ok);
+    },
+    [mirror],
+  );
+
+  const setTargets = useCallback(
+    async (t: Targets): Promise<SaveResult> => {
+      const res = db.setTargets(t);
+      if (res.ok) setTargetsState(t);
+      return mirror('targets', t, res.ok);
+    },
+    [mirror],
+  );
+
+  const persistSettings = useCallback(
+    (next: Settings) => {
+      db.setSettings(next);
+      setStrictCount(next.countMode === 'strict');
+      setSettingsState(next);
+      void mirror('settings', next, true);
+    },
+    [mirror],
+  );
+
+  const setCountMode = useCallback(
+    (m: CountMode) => persistSettings({ ...db.getSettings(), countMode: m }),
+    [persistSettings],
+  );
+  const setLowThreshold = useCallback(
+    (n: number) => persistSettings({ ...db.getSettings(), lowThreshold: n }),
+    [persistSettings],
+  );
 
   const reloadDataset = useCallback(() => setDatasetState(db.getDataset()), []);
-
-  const setDataset = useCallback((d: Dataset) => {
-    const res = db.setDataset(d);
-    if (res.ok) setDatasetState(d);
-    return res;
-  }, []);
-
-  const setTargets = useCallback((t: Targets) => {
-    const res = db.setTargets(t);
-    if (res.ok) setTargetsState(t);
-    return res;
-  }, []);
-
   const setSession = useCallback((s: Session | null) => setSessionState(s), []);
   const logout = useCallback(() => {
     doLogout();
     setSessionState(null);
   }, []);
-
   const setCustom = useCallback((start: string, end: string) => {
     setCustomStart(start);
     setCustomEnd(end);
@@ -109,18 +195,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => (dataset?.maxDate ? new Date(dataset.maxDate) : new Date()),
     [dataset?.maxDate],
   );
-
   const roster = useMemo(
     () => (dataset?.roster?.length ? dataset.roster : SEED_OFFICERS),
     [dataset?.roster],
   );
-
   const months = useMemo(
     () => availableMonths(dataset?.minDate ?? null, dataset?.maxDate ?? null),
     [dataset?.minDate, dataset?.maxDate],
   );
 
-  // default the month selector to the data's latest month
   useEffect(() => {
     if (!selectedMonth || !months.includes(selectedMonth)) setSelectedMonth(months[months.length - 1]);
   }, [months, selectedMonth]);
@@ -162,13 +245,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     selectedMonth,
     setSelectedMonth,
     months,
-    countMode,
+    countMode: settings.countMode,
     setCountMode,
-    lowThreshold,
+    lowThreshold: settings.lowThreshold,
     setLowThreshold,
     roster,
     refDate,
     range,
+    cloudEnabled,
+    syncStatus,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

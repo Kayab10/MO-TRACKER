@@ -1,12 +1,15 @@
 import type { Dataset, Targets } from '../lib/types';
 
+// localStorage acts as an offline cache / local-only store.
+// When Supabase is configured, AppContext + auth keep the cloud as the source of truth
+// and mirror every write into these same keys.
+
 const K = {
   dataset: 'mo.dataset.v1',
   targets: 'mo.targets.v1',
   users: 'mo.users.v1',
+  settings: 'mo.settings.v1',
   lastReportDate: 'mo.lastReportDate.v1',
-  countMode: 'mo.countMode.v1',
-  lowThreshold: 'mo.lowThreshold.v1',
 };
 
 function read<T>(key: string, fallback: T): T {
@@ -22,57 +25,81 @@ function write(key: string, value: unknown): { ok: boolean; error?: string } {
     localStorage.setItem(key, JSON.stringify(value));
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Storage failed' };
+    const msg = e instanceof Error ? e.message : 'Storage failed';
+    return { ok: false, error: /quota|exceeded/i.test(msg) ? 'file too large for browser storage' : msg };
   }
 }
 
+export interface Settings {
+  countMode: 'strict' | 'lenient';
+  lowThreshold: number;
+}
+const DEFAULT_SETTINGS: Settings = { countMode: 'lenient', lowThreshold: 40 };
+
+export interface StoredUser {
+  id: string;
+  role: 'admin' | 'user';
+  name: string;
+  passwordHash: string;
+}
+
+function reviveDataset(d: Dataset | null): Dataset | null {
+  if (d?.leads) {
+    for (const l of d.leads) {
+      if (l.assignedDate && !(l.assignedDate instanceof Date))
+        l.assignedDate = new Date(l.assignedDate as unknown as string);
+    }
+  }
+  return d;
+}
+
 export const db = {
+  // ---- dataset ----
   getDataset(): Dataset | null {
-    const d = read<Dataset | null>(K.dataset, null);
-    if (d?.leads) {
-      for (const l of d.leads) {
-        // dates are ISO strings after JSON round-trip — revive them
-        if (l.assignedDate && !(l.assignedDate instanceof Date))
-          l.assignedDate = new Date(l.assignedDate as unknown as string);
-      }
-    }
-    return d;
+    return reviveDataset(read<Dataset | null>(K.dataset, null));
   },
-  setDataset(d: Dataset) {
-    const res = write(K.dataset, d);
-    if (res.ok) {
-      write(K.lastReportDate, d.maxDate);
-    } else if (/quota|exceeded/i.test(res.error ?? '')) {
-      res.error = 'file too large for this browser to store (localStorage limit ~5 MB)';
+  setDataset(d: Dataset | null) {
+    if (d === null) {
+      localStorage.removeItem(K.dataset);
+      return { ok: true };
     }
+    const res = write(K.dataset, d);
+    if (res.ok) write(K.lastReportDate, d.maxDate);
     return res;
   },
   clearDataset() {
     localStorage.removeItem(K.dataset);
   },
+
+  // ---- targets ----
   getTargets(): Targets {
     return read<Targets>(K.targets, {});
   },
   setTargets(t: Targets) {
     return write(K.targets, t);
   },
+
+  // ---- settings ----
+  getSettings(): Settings {
+    const s = read<Partial<Settings>>(K.settings, {});
+    return {
+      countMode: s.countMode === 'strict' ? 'strict' : 'lenient',
+      lowThreshold: typeof s.lowThreshold === 'number' && s.lowThreshold > 0 && s.lowThreshold <= 100 ? s.lowThreshold : DEFAULT_SETTINGS.lowThreshold,
+    };
+  },
+  setSettings(s: Settings) {
+    return write(K.settings, s);
+  },
+
+  // ---- users ----
+  getUsers(): StoredUser[] {
+    return read<StoredUser[]>(K.users, []);
+  },
+  setUsers(u: StoredUser[]) {
+    return write(K.users, u);
+  },
+
   getLastReportDate(): string | null {
     return read<string | null>(K.lastReportDate, null);
   },
-  getCountMode(): 'strict' | 'lenient' {
-    return read<'strict' | 'lenient'>(K.countMode, 'lenient');
-  },
-  setCountMode(m: 'strict' | 'lenient') {
-    return write(K.countMode, m);
-  },
-  getLowThreshold(): number {
-    const n = read<number>(K.lowThreshold, 40);
-    return typeof n === 'number' && n > 0 && n <= 100 ? n : 40;
-  },
-  setLowThreshold(n: number) {
-    return write(K.lowThreshold, n);
-  },
-  _usersKey: K.users,
-  rawRead: read,
-  rawWrite: write,
 };

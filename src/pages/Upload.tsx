@@ -3,22 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import { UploadCloud, CheckCircle2, AlertTriangle, Trash2, Lock } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { parseWorkbook } from '../lib/parseExcel';
-import { db } from '../store/db';
 import type { Dataset } from '../lib/types';
 import { PageHead, SectionTitle } from '../components/ui';
 import { fmtNum } from '../lib/format';
 
 export default function Upload() {
-  const { dataset, setDataset, reloadDataset, session, logout } = useApp();
+  const { dataset, setDataset, session, logout, cloudEnabled } = useApp();
   const nav = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [warn, setWarn] = useState('');
   const [preview, setPreview] = useState<Dataset | null>(null);
   const [saved, setSaved] = useState(false);
 
   async function handleFile(file: File) {
     setError('');
+    setWarn('');
     setSaved(false);
     setPreview(null);
     setBusy(true);
@@ -33,13 +34,16 @@ export default function Upload() {
     }
   }
 
-  function confirmSave() {
+  async function confirmSave() {
     if (!preview) return;
-    const res = setDataset(preview);
+    setBusy(true);
+    const res = await setDataset(preview);
+    setBusy(false);
     if (!res.ok) {
       setError(`Could not save — ${res.error}.`);
       return;
     }
+    setWarn(res.cloudError ? `Saved on this device, but cloud sync failed: ${res.cloudError}` : '');
     setSaved(true);
     setPreview(null);
   }
@@ -113,10 +117,19 @@ export default function Upload() {
         </div>
       )}
 
+      {warn && (
+        <div className="mt-3 flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          {warn}
+        </div>
+      )}
+
       {saved && (
         <div className="mt-3 flex items-start gap-2 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          Saved. This data stays in the app until you upload a new file.
+          {cloudEnabled
+            ? 'Saved & published. Everyone who is logged in now sees this data.'
+            : 'Saved. This data stays in the app until you upload a new file.'}
         </div>
       )}
 
@@ -185,10 +198,15 @@ export default function Upload() {
           </div>
           <button
             className="btn mt-3 bg-rose-50 text-rose-700 hover:bg-rose-100"
-            onClick={() => {
-              if (confirm('Remove the current dataset? Reports will be empty until you upload again.')) {
-                db.clearDataset();
-                reloadDataset();
+            onClick={async () => {
+              if (
+                confirm(
+                  cloudEnabled
+                    ? 'Remove the current dataset for everyone? Reports will be empty until a new file is uploaded.'
+                    : 'Remove the current dataset? Reports will be empty until you upload again.',
+                )
+              ) {
+                await setDataset(null);
               }
             }}
           >

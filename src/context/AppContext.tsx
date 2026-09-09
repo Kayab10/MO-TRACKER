@@ -84,29 +84,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(cloudEnabled ? 'connecting' : 'off');
 
-  // keys this device wrote recently — skip the realtime echo for them
-  const echoGuard = useRef<Set<StateKey>>(new Set());
-  const guard = (k: StateKey) => {
-    echoGuard.current.add(k);
-    setTimeout(() => echoGuard.current.delete(k), 4000);
+  // timestamp of this device's last cloud write — used to ignore our own realtime echo
+  const lastLocalWrite = useRef(0);
+  const guard = () => {
+    lastLocalWrite.current = Date.now();
   };
 
+  // Apply a value received from the cloud. `undefined` = the row was deleted → clear locally.
   const applyKey = useCallback((key: StateKey, value: unknown) => {
     if (key === 'dataset') {
-      const d = (value as Dataset | null) ?? null;
+      const d = (value as Dataset | undefined) ?? null; // deleted → null
       db.setDataset(d);
       setDatasetState(db.getDataset());
     } else if (key === 'targets') {
-      const t = (value as Targets) ?? {};
+      const t = (value as Targets | undefined) ?? {};
       db.setTargets(t);
       setTargetsState(t);
     } else if (key === 'settings') {
+      if (value == null) return; // settings is never deleted
       const s = value as Settings;
       db.setSettings(s);
       setStrictCount(s.countMode === 'strict');
       setSettingsState(s);
     }
   }, []);
+
+  const resyncAll = useCallback(async () => {
+    for (const key of ['dataset', 'targets', 'settings'] as StateKey[]) {
+      applyKey(key, await pull(key)); // undefined ⇒ row deleted ⇒ clear locally
+    }
+  }, [applyKey]);
 
   // Initial cloud hydrate + realtime subscription
   useEffect(() => {
@@ -115,25 +122,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (async () => {
       for (const key of ['dataset', 'targets', 'settings'] as StateKey[]) {
         const v = await pull(key);
-        if (alive && v !== undefined) applyKey(key, v);
+        if (!alive) return;
+        if (v !== undefined) {
+          applyKey(key, v); // cloud is the source of truth
+        } else if (cloudReady()) {
+          // cloud has nothing for this key yet — seed it from this device if we have data
+          const local =
+            key === 'dataset' ? db.getDataset() : key === 'targets' ? db.getTargets() : null;
+          const hasLocal = key === 'dataset' ? !!local : Object.keys(local ?? {}).length > 0;
+          if (hasLocal) {
+            guard();
+            await push(key, local);
+          }
+        }
       }
       if (alive) setSyncStatus(cloudReady() ? 'live' : 'error');
     })();
-    const off = watch(async (key) => {
-      if (echoGuard.current.has(key)) return;
-      const v = await pull(key);
-      if (v !== undefined) applyKey(key, v);
-    });
+
+    const off = watch(
+      () => {
+        if (Date.now() - lastLocalWrite.current < 3500) return; // our own echo
+        void resyncAll();
+      },
+      (ok) => setSyncStatus(ok ? 'live' : 'error'),
+    );
     return () => {
       alive = false;
       off();
     };
-  }, [applyKey]);
+  }, [applyKey, resyncAll]);
 
   const mirror = useCallback(async (key: StateKey, value: unknown, localOk: boolean): Promise<SaveResult> => {
     if (!localOk) return { ok: false, error: 'could not save to this browser' };
     if (!cloudEnabled) return { ok: true };
-    guard(key);
+    guard();
     const res = await push(key, value);
     if (!res.ok) {
       setSyncStatus('error');

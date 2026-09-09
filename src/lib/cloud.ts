@@ -32,13 +32,20 @@ export async function pull<T = unknown>(key: StateKey): Promise<T | undefined> {
   return (data?.value as T) ?? undefined;
 }
 
-/** Write one state blob to the cloud. No-op (ok) when not configured. */
+/**
+ * Write one state blob to the cloud (upsert), or DELETE the row when value is null/undefined
+ * (e.g. admin removes the dataset). No-op (ok) when not configured.
+ */
 export async function push(key: StateKey, value: unknown): Promise<{ ok: boolean; error?: string }> {
   if (!cloudEnabled) return { ok: true };
   if (schemaMissing) return { ok: false, error: 'Supabase table "app_state" not set up yet (run schema.sql)' };
-  const { error } = await supabase!
-    .from(TABLE)
-    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+
+  const op =
+    value === null || value === undefined
+      ? supabase!.from(TABLE).delete().eq('key', key)
+      : supabase!.from(TABLE).upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+
+  const { error } = await op;
   if (error) {
     note(error);
     console.warn(`[cloud] push ${key}: ${error.message}`);
@@ -47,20 +54,20 @@ export async function push(key: StateKey, value: unknown): Promise<{ ok: boolean
   return { ok: true };
 }
 
-/** Subscribe to any change on app_state. Calls onChange(key) for each. Returns an unsubscribe fn. */
-export function watch(onChange: (key: StateKey) => void): () => void {
+/**
+ * Subscribe to any change on app_state. `onChange` fires for every insert/update/delete
+ * (DELETE payloads don't reliably carry the key, so callers should re-sync everything).
+ * `onStatus` reports the channel state. Returns an unsubscribe fn.
+ */
+export function watch(
+  onChange: () => void,
+  onStatus?: (ok: boolean) => void,
+): () => void {
   if (!supabase || schemaMissing) return () => {};
   const channel = supabase
     .channel('app_state_changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: TABLE },
-      (payload) => {
-        const rec = (payload.new ?? payload.old) as { key?: StateKey } | null;
-        if (rec?.key) onChange(rec.key);
-      },
-    )
-    .subscribe();
+    .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, () => onChange())
+    .subscribe((status) => onStatus?.(status === 'SUBSCRIBED'));
   return () => {
     supabase.removeChannel(channel);
   };

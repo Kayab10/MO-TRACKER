@@ -26,5 +26,6 @@ create policy "app_state write"
   using (true)
   with check (true);
 
--- Real-time change feed
+-- Real-time change feed (include full row on delete)
+alter table public.app_state replica identity full;
 alter publication supabase_realtime add table public.app_state;

@@ -1,6 +1,5 @@
 -- MO Track — run this once in the Supabase SQL Editor (Dashboard → SQL Editor → New query).
--- Creates the single shared-state table, opens read/write to the app's publishable key,
--- and enables real-time so every logged-in device updates live.
+-- Safe to re-run: every statement is idempotent.
 
 create table if not exists public.app_state (
   key        text primary key,
@@ -26,6 +25,17 @@ create policy "app_state write"
   using (true)
   with check (true);
 
--- Real-time change feed (include full row on delete)
+-- Real-time change feed (include the full row on delete)
 alter table public.app_state replica identity full;
-alter publication supabase_realtime add table public.app_state;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'app_state'
+  ) then
+    alter publication supabase_realtime add table public.app_state;
+  end if;
+end $$;

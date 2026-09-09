@@ -26,7 +26,7 @@ async function loadUsers(): Promise<User[]> {
   let users: User[] = [];
   if (cloudEnabled) {
     const remote = await pull<User[]>('users');
-    if (remote?.length) users = remote;
+    if (remote.status === 'value' && remote.value?.length) users = remote.value;
   }
   if (!users.length) users = db.getUsers();
   if (!users.length) {

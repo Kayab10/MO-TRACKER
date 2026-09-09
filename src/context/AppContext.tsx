@@ -90,18 +90,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     lastLocalWrite.current = Date.now();
   };
 
-  // Apply a value received from the cloud. `undefined` = the row was deleted → clear locally.
-  const applyKey = useCallback((key: StateKey, value: unknown) => {
+  // Apply what the cloud returned for a key. `null` = row confirmed absent → clear locally.
+  const applyKey = useCallback((key: StateKey, value: unknown | null) => {
     if (key === 'dataset') {
-      const d = (value as Dataset | undefined) ?? null; // deleted → null
+      const d = (value as Dataset | null) ?? null;
       db.setDataset(d);
       setDatasetState(db.getDataset());
     } else if (key === 'targets') {
-      const t = (value as Targets | undefined) ?? {};
+      const t = (value as Targets | null) ?? {};
       db.setTargets(t);
       setTargetsState(t);
     } else if (key === 'settings') {
-      if (value == null) return; // settings is never deleted
+      if (value == null) return; // settings has no "empty/delete" state
       const s = value as Settings;
       db.setSettings(s);
       setStrictCount(s.countMode === 'strict');
@@ -109,32 +109,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const resyncAll = useCallback(async () => {
-    for (const key of ['dataset', 'targets', 'settings'] as StateKey[]) {
-      applyKey(key, await pull(key)); // undefined ⇒ row deleted ⇒ clear locally
-    }
-  }, [applyKey]);
+  const syncKey = useCallback(
+    async (key: StateKey) => {
+      const res = await pull(key);
+      if (res.status === 'value') applyKey(key, res.value);
+      else if (res.status === 'empty') applyKey(key, null); // cloud has nothing ⇒ clear
+      // status === 'error' ⇒ leave the local cache untouched
+    },
+    [applyKey],
+  );
 
-  // Initial cloud hydrate + realtime subscription
+  const resyncAll = useCallback(async () => {
+    for (const key of ['dataset', 'targets', 'settings'] as StateKey[]) await syncKey(key);
+  }, [syncKey]);
+
+  // Initial cloud hydrate + realtime subscription.
+  // The cloud is the ONE source of truth. A device NEVER pushes its local cache up on its
+  // own — otherwise a phone with a stale cache would resurrect data an admin just deleted.
   useEffect(() => {
     if (!cloudEnabled) return;
     let alive = true;
     (async () => {
       for (const key of ['dataset', 'targets', 'settings'] as StateKey[]) {
-        const v = await pull(key);
         if (!alive) return;
-        if (v !== undefined) {
-          applyKey(key, v); // cloud is the source of truth
-        } else if (cloudReady()) {
-          // cloud has nothing for this key yet — seed it from this device if we have data
-          const local =
-            key === 'dataset' ? db.getDataset() : key === 'targets' ? db.getTargets() : null;
-          const hasLocal = key === 'dataset' ? !!local : Object.keys(local ?? {}).length > 0;
-          if (hasLocal) {
-            guard();
-            await push(key, local);
-          }
-        }
+        await syncKey(key);
       }
       if (alive) setSyncStatus(cloudReady() ? 'live' : 'error');
     })();
@@ -150,7 +148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       alive = false;
       off();
     };
-  }, [applyKey, resyncAll]);
+  }, [syncKey, resyncAll]);
 
   const mirror = useCallback(async (key: StateKey, value: unknown, localOk: boolean): Promise<SaveResult> => {
     if (!localOk) return { ok: false, error: 'could not save to this browser' };

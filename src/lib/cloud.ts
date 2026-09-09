@@ -20,16 +20,26 @@ function note(err: { message: string; code?: string }) {
   if (/schema cache|does not exist|relation .* does not exist/i.test(err.message)) schemaMissing = true;
 }
 
-/** Fetch one state blob from the cloud. Returns undefined if not configured, missing, or on error. */
-export async function pull<T = unknown>(key: StateKey): Promise<T | undefined> {
-  if (!cloudReady()) return undefined;
-  const { data, error } = await supabase!.from(TABLE).select('value').eq('key', key).maybeSingle();
-  if (error) {
-    note(error);
-    if (!schemaMissing) console.warn(`[cloud] pull ${key}: ${error.message}`);
-    return undefined;
+export type PullResult<T> =
+  | { status: 'value'; value: T }
+  | { status: 'empty' } // row confirmed absent — safe to clear locally
+  | { status: 'error' }; // couldn't reach the cloud — do NOT touch local cache
+
+/** Fetch one state blob. Distinguishes "genuinely empty" from "couldn't determine". */
+export async function pull<T = unknown>(key: StateKey): Promise<PullResult<T>> {
+  if (!cloudReady()) return { status: 'error' };
+  try {
+    const { data, error } = await supabase!.from(TABLE).select('value').eq('key', key).maybeSingle();
+    if (error) {
+      note(error);
+      if (!schemaMissing) console.warn(`[cloud] pull ${key}: ${error.message}`);
+      return { status: 'error' };
+    }
+    return data ? { status: 'value', value: data.value as T } : { status: 'empty' };
+  } catch (e) {
+    console.warn(`[cloud] pull ${key}:`, e);
+    return { status: 'error' };
   }
-  return (data?.value as T) ?? undefined;
 }
 
 /**

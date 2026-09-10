@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { classifyGroup, GROUP_AMOUNT_SOURCE } from '../data/taxonomy';
 import { displayName } from '../data/officers';
 import { STATUS_CLASS } from '../data/constants';
-import { monthCount, monthlyRange, cumulativeRange, buildGroupReport, setStrictCount } from './aggregate';
+import {
+  monthCount,
+  monthlyRange,
+  cumulativeRange,
+  buildGroupReport,
+  productReport,
+  setStrictCount,
+} from './aggregate';
 import type { Lead } from './types';
 
 // ---- §2.3 classification: the two rows most likely to be coded wrong ----
@@ -13,8 +20,15 @@ describe('loan sub-product classification', () => {
   it('Kisan Credit Card (under ProductName=Loans) → Agriculture', () => {
     expect(classifyGroup('Loans', 'Kisan Credit Card')).toBe('Agriculture');
   });
-  it('Retail - Gold Loan stays Retail (not Agriculture)', () => {
-    expect(classifyGroup('Loans', 'Retail - Gold Loan')).toBe('Retail');
+  it('Retail - Gold Loan → Agriculture (client: "retail se gold alag")', () => {
+    expect(classifyGroup('Loans', 'Retail - Gold Loan')).toBe('Agriculture');
+  });
+  it('Retail keeps only the first four sub-products', () => {
+    for (const s of ['Car Loan', 'Education Loan', 'Housing Loan', 'Personal Loan'])
+      expect(classifyGroup('Loans', s)).toBe('Retail');
+  });
+  it('Retail - Other falls through to the Loans→Retail fallback', () => {
+    expect(classifyGroup('Loans', 'Retail - Other')).toBe('Retail');
   });
   it('every documented sub-product resolves to a group', () => {
     const rows: [string, string, string][] = [
@@ -163,5 +177,46 @@ describe('group report', () => {
     expect(rep.rows).toHaveLength(1);
     expect(rep.rows[0].mo).toBe('Rohit Muley');
     expect(rep.total.achievement.number).toBe(2); // ghost not counted
+  });
+});
+
+describe('product-wise report', () => {
+  const range = cumulativeRange(new Date(2026, 6, 1), new Date(2026, 8, 30));
+  const leads = [
+    lead({ product: 'Loans', subProduct: 'Car Loan', progressAmount: 1_000_000, leadAmount: 1_200_000 }),
+    lead({ product: 'Loans', subProduct: 'Car Loan', progressAmount: 500_000, leadAmount: 600_000 }),
+    lead({
+      product: 'Deposits',
+      subProduct: 'Saving Account',
+      group: 'Deposits',
+      statusRaw: 'Open',
+      statusClass: 'pending',
+      progressCount: 0,
+      progressAmount: 0,
+      leadAmount: 50_000,
+    }),
+    lead({
+      product: 'Insurance',
+      subProduct: 'Life Insurance',
+      group: 'Insurance',
+      statusRaw: 'Not Interested',
+      statusClass: 'rejected',
+      progressCount: 0,
+      leadAmount: 0,
+    }),
+  ];
+
+  it('rolls leads up per product/sub-product with all statuses counted', () => {
+    const rep = productReport(leads, range);
+    const car = rep.rows.find((r) => r.subProduct === 'Car Loan')!;
+    expect(car.leads).toBe(2);
+    expect(car.converted).toBe(2);
+    expect(car.convertedAmount).toBe(15); // (10L + 5L) in lakh
+    expect(car.leadAmount).toBe(18); // Column E, in lakh
+
+    expect(rep.total.leads).toBe(4);
+    expect(rep.total.converted).toBe(2);
+    expect(rep.total.pending).toBe(1);
+    expect(rep.total.rejected).toBe(1);
   });
 });

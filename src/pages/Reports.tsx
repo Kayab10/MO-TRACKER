@@ -1,29 +1,40 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { FileDown, Sheet, MessageCircle, Mail, Printer } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { GROUPS, GROUP_LABEL, type GroupKey } from '../data/taxonomy';
-import { buildGroupReport } from '../lib/aggregate';
+import { buildGroupReport, productReport } from '../lib/aggregate';
 import {
   exportGroupReportExcel,
   exportGroupReportPDF,
+  exportProductReportExcel,
+  exportProductReportPDF,
   mailtoUrl,
+  productShareText,
   reportShareText,
   whatsappUrl,
 } from '../lib/export';
-import { PageHead, EmptyState } from '../components/ui';
+import { PageHead, EmptyState, Pills } from '../components/ui';
 import RangeBar from '../components/RangeBar';
 import GroupReportTable from '../components/GroupReportTable';
+import ProductReportTable from '../components/ProductReportTable';
+
+type View = 'group' | 'product';
 
 export default function Reports() {
   const { dataset, targets, range, countMode, roster } = useApp();
   const [params, setParams] = useSearchParams();
   const raw = params.get('group') as GroupKey | null;
   const group: GroupKey = raw && GROUPS.some((g) => g.key === raw) ? raw : 'Deposits';
+  const [view, setView] = useState<View>('group');
 
   const report = useMemo(
     () => (dataset ? buildGroupReport(dataset.leads, targets, group, range, roster) : null),
     [dataset, targets, group, range, countMode, roster],
+  );
+  const prodReport = useMemo(
+    () => (dataset ? productReport(dataset.leads, range) : null),
+    [dataset, range],
   );
   const hasGroupTargets = !!report && report.total.target.number + report.total.target.amount > 0;
 
@@ -35,7 +46,27 @@ export default function Reports() {
       </div>
     );
 
-  const shareText = report ? reportShareText(report) : '';
+  const shareText =
+    view === 'product'
+      ? prodReport
+        ? productShareText(prodReport)
+        : ''
+      : report
+        ? reportShareText(report)
+        : '';
+  const mailSubject =
+    view === 'product'
+      ? 'Product-wise Lead Report'
+      : `MO Performance Report — ${GROUP_LABEL[group]}`;
+
+  function downloadPDF() {
+    if (view === 'product') prodReport && exportProductReportPDF(prodReport);
+    else report && exportGroupReportPDF(report);
+  }
+  function downloadExcel() {
+    if (view === 'product') prodReport && exportProductReportExcel(prodReport);
+    else report && exportGroupReportExcel(report);
+  }
 
   return (
     <div>
@@ -45,23 +76,36 @@ export default function Reports() {
         <RangeBar />
       </div>
 
-      <select
-        value={group}
-        onChange={(e) => setParams({ group: e.target.value }, { replace: true })}
-        className="field mb-3 font-semibold"
-      >
-        {GROUPS.map((g) => (
-          <option key={g.key} value={g.key}>
-            {GROUP_LABEL[g.key]}
-          </option>
-        ))}
-      </select>
+      <div className="mb-3">
+        <Pills<View>
+          value={view}
+          onChange={setView}
+          options={[
+            { key: 'group', label: 'By Group' },
+            { key: 'product', label: 'By Product' },
+          ]}
+        />
+      </div>
+
+      {view === 'group' && (
+        <select
+          value={group}
+          onChange={(e) => setParams({ group: e.target.value }, { replace: true })}
+          className="field mb-3 font-semibold"
+        >
+          {GROUPS.map((g) => (
+            <option key={g.key} value={g.key}>
+              {GROUP_LABEL[g.key]}
+            </option>
+          ))}
+        </select>
+      )}
 
       <div className="mb-3 grid grid-cols-3 gap-2 no-print">
-        <button className="btn-primary !py-2.5" onClick={() => report && exportGroupReportPDF(report)}>
+        <button className="btn-primary !py-2.5" onClick={downloadPDF}>
           <FileDown className="h-4 w-4" /> PDF
         </button>
-        <button className="btn-ghost !py-2.5" onClick={() => report && exportGroupReportExcel(report)}>
+        <button className="btn-ghost !py-2.5" onClick={downloadExcel}>
           <Sheet className="h-4 w-4" /> Excel
         </button>
         <button className="btn-outline !py-2.5" onClick={() => window.print()}>
@@ -77,28 +121,32 @@ export default function Reports() {
         </a>
         <a
           className="btn bg-sky-600 text-white hover:bg-sky-700 !py-2.5 col-span-2"
-          href={mailtoUrl(`MO Performance Report — ${GROUP_LABEL[group]}`, shareText)}
+          href={mailtoUrl(mailSubject, shareText)}
         >
           <Mail className="h-4 w-4" /> Email report
         </a>
       </div>
 
-      {report && !hasGroupTargets && (
+      {view === 'group' && report && !hasGroupTargets && (
         <div className="mb-3 rounded-2xl bg-violet-50 p-3 text-sm text-violet-800 no-print">
           <b>No targets set for {GROUP_LABEL[group]}.</b> The Target and Achievement % columns stay blank until
           an admin enters targets for this group. The Achievement figures below are live from the file.
         </div>
       )}
 
-      {report && report.total.achievement.number === 0 && report.total.achievement.amount === 0 && (
-        <div className="mb-3 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800 no-print">
-          No converted leads for <b>{GROUP_LABEL[group]}</b> in this date range.
-          {dataset.convertedNoAccount > 0 &&
-            ' If you expected some, check the "converted without account number" note on the Upload screen, or switch counting mode in Settings.'}
-        </div>
-      )}
+      {view === 'group' &&
+        report &&
+        report.total.achievement.number === 0 &&
+        report.total.achievement.amount === 0 && (
+          <div className="mb-3 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800 no-print">
+            No converted leads for <b>{GROUP_LABEL[group]}</b> in this date range.
+            {dataset.convertedNoAccount > 0 &&
+              ' If you expected some, check the "converted without account number" note on the Upload screen, or switch counting mode in Settings.'}
+          </div>
+        )}
 
-      {report && <GroupReportTable report={report} />}
+      {view === 'group' && report && <GroupReportTable report={report} />}
+      {view === 'product' && prodReport && <ProductReportTable report={prodReport} />}
     </div>
   );
 }

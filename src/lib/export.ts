@@ -1,6 +1,6 @@
 import { GROUP_LABEL } from '../data/taxonomy';
 import { fmtLakh, fmtNum, fmtPct } from './format';
-import type { GroupReport } from './aggregate';
+import type { GroupReport, ProductReport } from './aggregate';
 
 function heading(report: GroupReport) {
   return `MO PERFORMANCE REPORT (${GROUP_LABEL[report.group]})`;
@@ -108,6 +108,135 @@ export async function exportGroupReportExcel(report: GroupReport, fileName?: str
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, GROUP_LABEL[report.group].slice(0, 28));
   XLSX.writeFile(wb, fileName ?? `MO_${report.group}_${stamp()}.xlsx`);
+}
+
+// ---- Product-wise report exports ----
+const PRODUCT_HEAD = 'PRODUCT-WISE LEAD REPORT';
+
+export async function exportProductReportPDF(report: ProductReport, fileName?: string) {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  doc.setFontSize(14);
+  doc.text(PRODUCT_HEAD, doc.internal.pageSize.getWidth() / 2, 40, { align: 'center' });
+  doc.setFontSize(10);
+  doc.text(`For the period: ${report.range.label}`, doc.internal.pageSize.getWidth() / 2, 58, {
+    align: 'center',
+  });
+  doc.text('Amount in lakh', doc.internal.pageSize.getWidth() - 40, 58, { align: 'right' });
+
+  const body = report.rows.map((r) => [
+    r.product,
+    r.subProduct,
+    fmtNum(r.leads),
+    fmtLakh(r.leadAmount),
+    fmtNum(r.converted),
+    fmtLakh(r.convertedAmount),
+    fmtNum(r.pending),
+    fmtNum(r.rejected),
+  ]);
+  body.push([
+    'Total',
+    '',
+    fmtNum(report.total.leads),
+    fmtLakh(report.total.leadAmount),
+    fmtNum(report.total.converted),
+    fmtLakh(report.total.convertedAmount),
+    fmtNum(report.total.pending),
+    fmtNum(report.total.rejected),
+  ]);
+
+  autoTable(doc, {
+    startY: 74,
+    head: [
+      [
+        { content: 'Product', rowSpan: 2 },
+        { content: 'Sub-product', rowSpan: 2 },
+        { content: 'Leads (all)', colSpan: 2 },
+        { content: 'Converted', colSpan: 2 },
+        { content: 'Pending', rowSpan: 2 },
+        { content: 'Rejected', rowSpan: 2 },
+      ],
+      ['No.', 'Amt.', 'No.', 'Amt.'],
+    ],
+    body,
+    styles: { fontSize: 8, cellPadding: 3 },
+    headStyles: { fillColor: [124, 58, 237], halign: 'center' },
+    columnStyles: {
+      2: { halign: 'right' },
+      3: { halign: 'right' },
+      4: { halign: 'right' },
+      5: { halign: 'right' },
+      6: { halign: 'right' },
+      7: { halign: 'right' },
+    },
+    didParseCell: (d) => {
+      if (d.row.index === body.length - 1) d.cell.styles.fontStyle = 'bold';
+    },
+  });
+
+  doc.save(fileName ?? `Product_report_${stamp()}.pdf`);
+}
+
+export async function exportProductReportExcel(report: ProductReport, fileName?: string) {
+  const XLSX = await import('xlsx');
+  const aoa: (string | number)[][] = [
+    [PRODUCT_HEAD],
+    [`For the period: ${report.range.label}`],
+    ['Amount in lakh'],
+    [],
+    ['Product', 'Sub-product', 'Leads No.', 'Leads Amt.', 'Converted No.', 'Converted Amt.', 'Pending', 'Rejected'],
+  ];
+  for (const r of report.rows)
+    aoa.push([
+      r.product,
+      r.subProduct,
+      r.leads,
+      r.leadAmount,
+      r.converted,
+      r.convertedAmount,
+      r.pending,
+      r.rejected,
+    ]);
+  aoa.push([
+    'Total',
+    '',
+    report.total.leads,
+    report.total.leadAmount,
+    report.total.converted,
+    report.total.convertedAmount,
+    report.total.pending,
+    report.total.rejected,
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 12 }, { wch: 13 }, { wch: 14 }, { wch: 10 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Product-wise');
+  XLSX.writeFile(wb, fileName ?? `Product_report_${stamp()}.xlsx`);
+}
+
+export function productShareText(report: ProductReport): string {
+  const lines: string[] = [];
+  lines.push(`*${PRODUCT_HEAD}*`);
+  lines.push(report.range.label);
+  lines.push('_Amount in lakh_');
+  lines.push('');
+  lines.push(`Total leads: ${fmtNum(report.total.leads)} / ${fmtLakh(report.total.leadAmount)}`);
+  lines.push(
+    `Converted: ${fmtNum(report.total.converted)} / ${fmtLakh(report.total.convertedAmount)}`,
+  );
+  lines.push(`Pending: ${fmtNum(report.total.pending)}   Rejected: ${fmtNum(report.total.rejected)}`);
+  lines.push('');
+  const top = [...report.rows].sort((a, b) => b.converted - a.converted).slice(0, 6);
+  if (top.length) {
+    lines.push('Top sub-products (converted):');
+    top.forEach((r, i) =>
+      lines.push(`${i + 1}. ${r.subProduct} — ${fmtNum(r.converted)} / ${fmtLakh(r.convertedAmount)}`),
+    );
+  }
+  return lines.join('\n');
 }
 
 export function reportShareText(report: GroupReport): string {

@@ -222,6 +222,89 @@ export function groupSummaries(
   });
 }
 
+// ---- Product / sub-product wise report (instruction: "Classification" section) ----
+export interface ProductRow {
+  product: string;
+  subProduct: string;
+  group: GroupKey | null;
+  leads: number; // all statuses (instruction: "For total Lead Generated, All Lead Status will be taken")
+  leadAmount: number; // lakh, Column E
+  converted: number;
+  convertedAmount: number; // lakh, group-specific source column (X onward)
+  pending: number;
+  rejected: number;
+}
+export interface ProductReportTotals {
+  leads: number;
+  leadAmount: number;
+  converted: number;
+  convertedAmount: number;
+  pending: number;
+  rejected: number;
+}
+export interface ProductReport {
+  range: DateRange;
+  rows: ProductRow[];
+  total: ProductReportTotals;
+}
+
+export function productReport(leads: Lead[], range: DateRange): ProductReport {
+  const map = new Map<string, ProductRow>();
+  for (const l of leads) {
+    if (!inRange(l, range)) continue;
+    const product = l.product || '—';
+    const subProduct = l.subProduct || '—';
+    const k = `${product} ||| ${subProduct}`;
+    let row = map.get(k);
+    if (!row) {
+      row = {
+        product,
+        subProduct,
+        group: l.group,
+        leads: 0,
+        leadAmount: 0,
+        converted: 0,
+        convertedAmount: 0,
+        pending: 0,
+        rejected: 0,
+      };
+      map.set(k, row);
+    }
+    row.leads += 1;
+    row.leadAmount += toLakh(l.leadAmount);
+    if (l.statusClass === 'progress') {
+      row.converted += 1;
+      row.convertedAmount += toLakh(l.progressAmount);
+    } else if (l.statusClass === 'pending') {
+      row.pending += 1;
+    } else {
+      row.rejected += 1;
+    }
+  }
+  const rows = [...map.values()].sort(
+    (a, b) => a.product.localeCompare(b.product) || b.leads - a.leads,
+  );
+  for (const r of rows) {
+    r.leadAmount = round2(r.leadAmount);
+    r.convertedAmount = round2(r.convertedAmount);
+  }
+  const total = rows.reduce<ProductReportTotals>(
+    (t, r) => {
+      t.leads += r.leads;
+      t.leadAmount += r.leadAmount;
+      t.converted += r.converted;
+      t.convertedAmount += r.convertedAmount;
+      t.pending += r.pending;
+      t.rejected += r.rejected;
+      return t;
+    },
+    { leads: 0, leadAmount: 0, converted: 0, convertedAmount: 0, pending: 0, rejected: 0 },
+  );
+  total.leadAmount = round2(total.leadAmount);
+  total.convertedAmount = round2(total.convertedAmount);
+  return { range, rows, total };
+}
+
 export interface Pendency {
   overall: { count: number; amount: number };
   byRegion: { name: string; count: number; amount: number }[];

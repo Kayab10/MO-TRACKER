@@ -54,20 +54,17 @@ function norm(s: unknown): string {
 const SUB_TO_GROUP: Record<string, GroupKey> = {};
 const add = (g: GroupKey, subs: string[]) => subs.forEach((s) => (SUB_TO_GROUP[norm(s)] = g));
 
-// Retail loans
-add('Retail', [
-  'Car Loan',
-  'Education Loan',
-  'Housing Loan',
-  'Personal Loan',
-  'Retail - Gold Loan',
-  'Retail - Other',
-]);
+// Retail loans — only the first four sub-products from the instruction sheet.
+// "Retail - Gold Loan" is pulled out to Agriculture (client: "retail se gold alag").
+// "Retail - Other" has no explicit mapping and falls through to the Loans→Retail
+// fallback below, so it still lands in Retail without being double-counted here.
+add('Retail', ['Car Loan', 'Education Loan', 'Housing Loan', 'Personal Loan']);
 // MSME loans
 add('MSME', ['Business Loan', 'Cent Business', 'Cent Hotel', 'MSME - Other']);
-// Agriculture (note: Gold Loan + KCC classified here, per instruction)
+// Agriculture (note: Gold Loan + KCC + Retail - Gold Loan classified here, per instruction)
 add('Agriculture', [
   'Gold Loan',
+  'Retail - Gold Loan',
   'Kisan Credit Card',
   'Agriculture- Other /Agri Allied Activities',
   'Agriculture - Other /Agri Allied Activities',

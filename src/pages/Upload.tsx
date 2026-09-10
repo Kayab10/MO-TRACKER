@@ -61,8 +61,8 @@ export default function Upload() {
           <Lock className="h-9 w-9 text-violet-400" />
           <p className="text-base font-bold text-gray-700">Only the Administrator can upload data</p>
           <p className="text-sm text-gray-500">
-            You are signed in as a viewer. Sign in with the <b>admin</b> account
-            (<code>admin</code> / <code>admin123</code>) to upload the Excel file and set targets.
+            You are signed in as a viewer. Sign in with the <b>Administrator</b> account to upload the Excel
+            file and set targets.
           </p>
           <button
             className="btn-primary mt-1"

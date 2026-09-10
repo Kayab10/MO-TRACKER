@@ -85,8 +85,8 @@ export default function Login() {
           <br />
           Tracking System
         </p>
-        <p className="mt-4 text-center text-[11px] text-white/60">
-          Demo logins — admin / admin123 &nbsp;·&nbsp; user / user123
+        <p className="mt-4 text-center text-[11px] font-semibold tracking-wide text-white/70">
+          CAC, Bhopal
         </p>
       </div>
     </div>

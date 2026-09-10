@@ -1,4 +1,5 @@
 import type { Dataset, Targets } from '../lib/types';
+import { classifyGroup, GROUP_AMOUNT_SOURCE } from '../data/taxonomy';
 
 // localStorage acts as an offline cache / local-only store.
 // When Supabase is configured, AppContext + auth keep the cloud as the source of truth
@@ -43,12 +44,49 @@ export interface StoredUser {
   passwordHash: string;
 }
 
+// Re-run the parts of parsing that depend on the taxonomy, so a classification
+// change (e.g. splitting out "Gold Loan") takes effect on the next load without
+// forcing the admin to re-upload the file. The raw per-lead fields it needs
+// (product, sub-product, the amount columns, status) are all stored already.
+function reclassify(d: Dataset): void {
+  for (const l of d.leads) {
+    const group = classifyGroup(l.product, l.subProduct);
+    l.group = group;
+    if (l.statusClass === 'progress' && group) {
+      l.progressCount = 1;
+      switch (GROUP_AMOUNT_SOURCE[group]) {
+        case 'sanctioned':
+          l.progressAmount = l.sanctionedAmount;
+          break;
+        case 'deposit':
+          l.progressAmount = l.depositAmount;
+          break;
+        case 'premium':
+          l.progressAmount = l.policyPremium;
+          break;
+        case 'mutualfund':
+          l.progressAmount = l.mfInvested;
+          break;
+        case 'leadAmount':
+          l.progressAmount = l.leadAmount;
+          break;
+        default:
+          l.progressAmount = 0;
+      }
+    } else {
+      l.progressCount = 0;
+      l.progressAmount = 0;
+    }
+  }
+}
+
 function reviveDataset(d: Dataset | null): Dataset | null {
   if (d?.leads) {
     for (const l of d.leads) {
       if (l.assignedDate && !(l.assignedDate instanceof Date))
         l.assignedDate = new Date(l.assignedDate as unknown as string);
     }
+    reclassify(d);
   }
   return d;
 }

@@ -14,14 +14,14 @@ import type { Lead } from './types';
 
 // ---- §2.3 classification: the two rows most likely to be coded wrong ----
 describe('loan sub-product classification', () => {
-  it('Gold Loan (under ProductName=Loans) → Agriculture, NOT Retail', () => {
-    expect(classifyGroup('Loans', 'Gold Loan')).toBe('Agriculture');
+  it('Gold Loan (under ProductName=Loans) → its own Gold Loan section', () => {
+    expect(classifyGroup('Loans', 'Gold Loan')).toBe('GoldLoan');
+  });
+  it('Retail - Gold Loan → Gold Loan section too (client: gold tracked separately)', () => {
+    expect(classifyGroup('Loans', 'Retail - Gold Loan')).toBe('GoldLoan');
   });
   it('Kisan Credit Card (under ProductName=Loans) → Agriculture', () => {
     expect(classifyGroup('Loans', 'Kisan Credit Card')).toBe('Agriculture');
-  });
-  it('Retail - Gold Loan → Agriculture (client: "retail se gold alag")', () => {
-    expect(classifyGroup('Loans', 'Retail - Gold Loan')).toBe('Agriculture');
   });
   it('Retail keeps only the first four sub-products', () => {
     for (const s of ['Car Loan', 'Education Loan', 'Housing Loan', 'Personal Loan'])
@@ -53,6 +53,7 @@ describe('achievement amount source', () => {
     expect(GROUP_AMOUNT_SOURCE.Retail).toBe('sanctioned');
     expect(GROUP_AMOUNT_SOURCE.MSME).toBe('sanctioned');
     expect(GROUP_AMOUNT_SOURCE.Agriculture).toBe('sanctioned');
+    expect(GROUP_AMOUNT_SOURCE.GoldLoan).toBe('sanctioned');
   });
   it('deposits/insurance/MF use their own columns', () => {
     expect(GROUP_AMOUNT_SOURCE.Deposits).toBe('deposit');

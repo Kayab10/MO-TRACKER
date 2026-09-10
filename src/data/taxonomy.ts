@@ -7,6 +7,7 @@ export type GroupKey =
   | 'GovtSchemes'
   | 'MSME'
   | 'Agriculture'
+  | 'GoldLoan'
   | 'Insurance'
   | 'MutualFund'
   | 'BuilderTieup'
@@ -18,6 +19,7 @@ export const GROUPS: { key: GroupKey; label: string }[] = [
   { key: 'GovtSchemes', label: 'Govt. Schemes' },
   { key: 'MSME', label: 'MSME' },
   { key: 'Agriculture', label: 'Agriculture' },
+  { key: 'GoldLoan', label: 'Gold Loan' },
   { key: 'Insurance', label: 'Insurance' },
   { key: 'MutualFund', label: 'Mutual Fund' },
   { key: 'BuilderTieup', label: 'Builder Tie-up' },
@@ -35,6 +37,7 @@ export const GROUP_AMOUNT_SOURCE: Record<GroupKey, AmountSource> = {
   Retail: 'sanctioned',
   MSME: 'sanctioned',
   Agriculture: 'sanctioned',
+  GoldLoan: 'sanctioned',
   GovtSchemes: 'deposit', // PPF / SCSS / SSY are deposit accounts
   Insurance: 'premium',
   MutualFund: 'mutualfund',
@@ -55,16 +58,16 @@ const SUB_TO_GROUP: Record<string, GroupKey> = {};
 const add = (g: GroupKey, subs: string[]) => subs.forEach((s) => (SUB_TO_GROUP[norm(s)] = g));
 
 // Retail loans — only the first four sub-products from the instruction sheet.
-// "Retail - Gold Loan" is pulled out to Agriculture (client: "retail se gold alag").
 // "Retail - Other" has no explicit mapping and falls through to the Loans→Retail
 // fallback below, so it still lands in Retail without being double-counted here.
 add('Retail', ['Car Loan', 'Education Loan', 'Housing Loan', 'Personal Loan']);
 // MSME loans
 add('MSME', ['Business Loan', 'Cent Business', 'Cent Hotel', 'MSME - Other']);
-// Agriculture (note: Gold Loan + KCC + Retail - Gold Loan classified here, per instruction)
+// Gold Loan — its own section (client asked for gold to be tracked separately,
+// out of both Retail and Agriculture).
+add('GoldLoan', ['Gold Loan', 'Retail - Gold Loan']);
+// Agriculture (Kisan Credit Card + agri-allied activities)
 add('Agriculture', [
-  'Gold Loan',
-  'Retail - Gold Loan',
   'Kisan Credit Card',
   'Agriculture- Other /Agri Allied Activities',
   'Agriculture - Other /Agri Allied Activities',

@@ -13,6 +13,7 @@ import {
   CalendarClock,
   Banknote,
   PiggyBank,
+  Coins,
   type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -30,6 +31,7 @@ const GROUP_TILES: { key: string; label: string; group: GroupKey; icon: LucideIc
   { key: 'GovtSchemes', label: 'Govt. Schemes', group: 'GovtSchemes', icon: Banknote, tint: 'bg-lime-100 text-lime-700' },
   { key: 'MSME', label: 'MSME', group: 'MSME', icon: Factory, tint: 'bg-amber-100 text-amber-700' },
   { key: 'Agriculture', label: 'Agriculture', group: 'Agriculture', icon: Sprout, tint: 'bg-emerald-100 text-emerald-700' },
+  { key: 'GoldLoan', label: 'Gold Loan', group: 'GoldLoan', icon: Coins, tint: 'bg-yellow-100 text-yellow-700' },
   { key: 'Insurance', label: 'Insurance', group: 'Insurance', icon: ShieldCheck, tint: 'bg-indigo-100 text-indigo-700' },
   { key: 'MutualFund', label: 'Mutual Fund', group: 'MutualFund', icon: PiggyBank, tint: 'bg-rose-100 text-rose-700' },
 ];

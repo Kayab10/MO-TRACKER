@@ -14,11 +14,11 @@ import type { Lead } from './types';
 
 // ---- §2.3 classification: the two rows most likely to be coded wrong ----
 describe('loan sub-product classification', () => {
-  it('Gold Loan (under ProductName=Loans) → its own Gold Loan section', () => {
-    expect(classifyGroup('Loans', 'Gold Loan')).toBe('GoldLoan');
+  it('Gold Loan (under ProductName=Loans) → Agriculture, per the instruction sheet', () => {
+    expect(classifyGroup('Loans', 'Gold Loan')).toBe('Agriculture');
   });
-  it('Retail - Gold Loan → Gold Loan section too (client: gold tracked separately)', () => {
-    expect(classifyGroup('Loans', 'Retail - Gold Loan')).toBe('GoldLoan');
+  it('Retail - Gold Loan → its own separate section, NOT the same as Gold Loan', () => {
+    expect(classifyGroup('Loans', 'Retail - Gold Loan')).toBe('RetailGoldLoan');
   });
   it('Kisan Credit Card (under ProductName=Loans) → Agriculture', () => {
     expect(classifyGroup('Loans', 'Kisan Credit Card')).toBe('Agriculture');
@@ -27,7 +27,7 @@ describe('loan sub-product classification', () => {
     for (const s of ['Car Loan', 'Education Loan', 'Housing Loan', 'Personal Loan'])
       expect(classifyGroup('Loans', s)).toBe('Retail');
   });
-  it('Retail - Other falls through to the Loans→Retail fallback', () => {
+  it('Retail - Other is explicitly Retail (item 2 of the classification list)', () => {
     expect(classifyGroup('Loans', 'Retail - Other')).toBe('Retail');
   });
   it('every documented sub-product resolves to a group', () => {
@@ -39,11 +39,15 @@ describe('loan sub-product classification', () => {
       ['Deposits', 'TASC Accounts', 'Deposits'],
       ['Government Scheme', 'PPF', 'GovtSchemes'],
       ['Government Scheme', 'Sukanya  Samriddhi Yojna', 'GovtSchemes'],
+      ['Government Scheme', 'Pension Accounts', 'GovtSchemes'],
       ['Insurance', 'Term Insurance', 'Insurance'],
       ['Mutual Funds', 'Mutual Funds', 'MutualFund'],
       ['Agriculture Loan', 'Cent Cluster_food Processing', 'Agriculture'],
     ];
     for (const [p, s, g] of rows) expect(classifyGroup(p, s)).toBe(g);
+  });
+  it('has no product-name fallback — an unrecognised sub-product is unclassified', () => {
+    expect(classifyGroup('Loans', 'Something New')).toBeNull();
   });
 });
 
@@ -53,7 +57,7 @@ describe('achievement amount source', () => {
     expect(GROUP_AMOUNT_SOURCE.Retail).toBe('sanctioned');
     expect(GROUP_AMOUNT_SOURCE.MSME).toBe('sanctioned');
     expect(GROUP_AMOUNT_SOURCE.Agriculture).toBe('sanctioned');
-    expect(GROUP_AMOUNT_SOURCE.GoldLoan).toBe('sanctioned');
+    expect(GROUP_AMOUNT_SOURCE.RetailGoldLoan).toBe('sanctioned');
   });
   it('deposits/insurance/MF use their own columns', () => {
     expect(GROUP_AMOUNT_SOURCE.Deposits).toBe('deposit');

@@ -67,9 +67,6 @@ function reclassify(d: Dataset): void {
         case 'mutualfund':
           l.progressAmount = l.mfInvested;
           break;
-        case 'leadAmount':
-          l.progressAmount = l.leadAmount;
-          break;
         default:
           l.progressAmount = 0;
       }

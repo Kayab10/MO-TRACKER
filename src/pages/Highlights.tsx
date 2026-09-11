@@ -83,7 +83,7 @@ export default function Highlights() {
           <Chip active={group === 'all'} onClick={() => setGroup('all')}>
             All
           </Chip>
-          {GROUPS.filter((g) => g.key !== 'BuilderTieup' && g.key !== 'DealerTieup').map((g) => (
+          {GROUPS.map((g) => (
             <Chip key={g.key} active={group === g.key} onClick={() => setGroup(g.key)}>
               {g.label}
             </Chip>

@@ -128,7 +128,7 @@ export async function exportProductReportPDF(report: ProductReport, fileName?: s
   doc.text('Amount in lakh', doc.internal.pageSize.getWidth() - 40, 58, { align: 'right' });
 
   const body = report.rows.map((r) => [
-    r.product,
+    r.group ? GROUP_LABEL[r.group] : 'Unclassified',
     r.subProduct,
     fmtNum(r.leads),
     fmtLakh(r.leadAmount),
@@ -152,7 +152,7 @@ export async function exportProductReportPDF(report: ProductReport, fileName?: s
     startY: 74,
     head: [
       [
-        { content: 'Product', rowSpan: 2 },
+        { content: 'Group', rowSpan: 2 },
         { content: 'Sub-product', rowSpan: 2 },
         { content: 'Leads (all)', colSpan: 2 },
         { content: 'Converted', colSpan: 2 },
@@ -187,11 +187,11 @@ export async function exportProductReportExcel(report: ProductReport, fileName?:
     [`For the period: ${report.range.label}`],
     ['Amount in lakh'],
     [],
-    ['Product', 'Sub-product', 'Leads No.', 'Leads Amt.', 'Converted No.', 'Converted Amt.', 'Pending', 'Rejected'],
+    ['Group', 'Sub-product', 'Leads No.', 'Leads Amt.', 'Converted No.', 'Converted Amt.', 'Pending', 'Rejected'],
   ];
   for (const r of report.rows)
     aoa.push([
-      r.product,
+      r.group ? GROUP_LABEL[r.group] : 'Unclassified',
       r.subProduct,
       r.leads,
       r.leadAmount,

@@ -281,8 +281,13 @@ export function productReport(leads: Lead[], range: DateRange): ProductReport {
       row.rejected += 1;
     }
   }
+  // Order rows by the same classification groups used everywhere else in the
+  // app (Deposits, Retail, Govt. Schemes, MSME, Agriculture, Retail Gold Loan,
+  // Insurance, Mutual Fund), not by the raw Excel Product Name column.
+  const groupOrder = new Map(GROUPS.map((g, i) => [g.key, i]));
+  const rank = (r: ProductRow) => (r.group ? (groupOrder.get(r.group) ?? 99) : 99);
   const rows = [...map.values()].sort(
-    (a, b) => a.product.localeCompare(b.product) || b.leads - a.leads,
+    (a, b) => rank(a) - rank(b) || a.subProduct.localeCompare(b.subProduct),
   );
   for (const r of rows) {
     r.leadAmount = round2(r.leadAmount);

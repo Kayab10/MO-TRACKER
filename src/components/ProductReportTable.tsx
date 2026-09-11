@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { GROUP_LABEL } from '../data/taxonomy';
 import { fmtLakh, fmtNum } from '../lib/format';
 import type { ProductReport } from '../lib/aggregate';
 
@@ -7,12 +8,15 @@ const dash = (n: number, fmt: (n: number) => string) => (n > 0 ? fmt(n) : '—')
 export default function ProductReportTable({ report }: { report: ProductReport }) {
   const t = report.total;
 
-  // group the flat rows by product so the table reads Product → Sub-products
-  const byProduct: { product: string; rows: ProductReport['rows'] }[] = [];
+  // Group the flat rows by the same classification (Retail, MSME, Agriculture,
+  // Retail Gold Loan, Deposits, Govt. Schemes, Insurance, Mutual Fund) used
+  // everywhere else in the app — not by the raw Excel Product Name column.
+  const byGroup: { label: string; rows: ProductReport['rows'] }[] = [];
   for (const r of report.rows) {
-    const last = byProduct[byProduct.length - 1];
-    if (last && last.product === r.product) last.rows.push(r);
-    else byProduct.push({ product: r.product, rows: [r] });
+    const label = r.group ? GROUP_LABEL[r.group] : 'Unclassified';
+    const last = byGroup[byGroup.length - 1];
+    if (last && last.label === label) last.rows.push(r);
+    else byGroup.push({ label, rows: [r] });
   }
 
   return (
@@ -29,7 +33,7 @@ export default function ProductReportTable({ report }: { report: ProductReport }
           <thead>
             <tr className="bg-violet-50 text-[11px] uppercase tracking-wide text-violet-800">
               <th className="sticky left-0 z-10 bg-violet-50 px-2 py-2 text-left" rowSpan={2}>
-                Product / Sub-product
+                Group / Sub-product
               </th>
               <th className="px-2 py-2" colSpan={2}>
                 Leads (all)
@@ -52,7 +56,7 @@ export default function ProductReportTable({ report }: { report: ProductReport }
             </tr>
           </thead>
           <tbody>
-            {byProduct.map(({ product, rows }) => {
+            {byGroup.map(({ label, rows }) => {
               const sub = rows.reduce(
                 (a, r) => {
                   a.leads += r.leads;
@@ -66,9 +70,9 @@ export default function ProductReportTable({ report }: { report: ProductReport }
                 { leads: 0, leadAmount: 0, converted: 0, convertedAmount: 0, pending: 0, rejected: 0 },
               );
               return (
-                <Fragment key={product}>
+                <Fragment key={label}>
                   <tr className="border-t border-gray-100 bg-violet-50/60 font-bold text-violet-900">
-                    <td className="sticky left-0 z-10 bg-violet-50 px-2 py-1.5">{product}</td>
+                    <td className="sticky left-0 z-10 bg-violet-50 px-2 py-1.5">{label}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{fmtNum(sub.leads)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{fmtLakh(sub.leadAmount)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{fmtNum(sub.converted)}</td>
